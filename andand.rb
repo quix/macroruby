@@ -32,4 +32,7 @@ class A
 end
 
 a = A.new
-p nil.andand.f
+p a.andand.f  #=> 44
+p (1 == 2 ? nil : a).andand.f  #=> 44
+p (2 == 2 ? nil : a).andand.f  #=> nil
+p nil.andand.f  #=> nil
