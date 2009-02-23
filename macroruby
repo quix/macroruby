@@ -1,0 +1,146 @@
+#!/usr/bin/env ruby
+
+require 'rubygems'
+require 'ruby_parser'
+require 'ruby2ruby'
+
+$DEBUG = true
+
+module MacroRuby
+  MACROS = Hash.new
+
+  class << self
+    method_name = :gen_string
+    digits = (1..20).map { |t| rand(10) }.join
+    count = 0
+    mutex = Mutex.new
+    define_method(method_name) {
+      mutex.synchronize {
+        count += 1
+      }
+      "__#{method_name}__#{digits}__#{count}"
+    }
+  end
+
+  module Report
+    def error(str = nil)
+      if str.nil?
+        puts "-"*60
+      elsif str =~ %r!:\Z!
+        puts "* #{str}"
+      else
+        puts str
+      end
+    end
+
+    if $DEBUG
+      alias_method :debug, :error
+    else
+      def debug(*args) ; end
+    end
+  end
+
+  class ExtractMacros < SexpProcessor
+    def process(exp)
+      if exp[0] == :defn and exp[1].to_s =~ %r!\Amacro_(.*)\Z!
+        name = ($1).to_sym
+        exp[1] = name
+        MACROS[name] = { :sexp => exp }
+        macro_def = Ruby2Ruby.new.process(process(exp))
+        begin
+          eval(macro_def, TOPLEVEL_BINDING)
+        rescue
+          error
+          error "error defining macro `#{name}':"
+          error macro_def
+            error
+          raise
+        end
+        MACROS[name][:def] = macro_def
+        s(:nil)
+      else
+        super
+      end
+    end
+  end
+
+  class ApplyMacros < SexpProcessor
+    include Report
+    def process(exp)
+      if macro = (exp[0] == :call and MACROS[exp[2]])
+        name = exp[2]
+        args = (exp[3][1..-1]).map { |arg|
+          Ruby2Ruby.new.process(arg).inspect
+        }
+        receiver = (
+          if exp[1].nil?
+            "self"
+          else
+            Ruby2Ruby.new.process(exp[1])
+          end
+        ).inspect
+
+        call_args = [receiver, *args].join(",")
+        macro_call = "#{name}(#{call_args})"
+
+        begin
+          result_code = eval(macro_call, TOPLEVEL_BINDING)
+        rescue
+          error
+          error "error calling macro `#{name}':"
+          error
+          error "macro invocation:"
+          error macro_call
+          error
+          error "macro definition:"
+          error macro[:def]
+          error
+          raise
+        end
+
+        begin
+          result_sexp = RubyParser.new.parse(result_code)
+        rescue
+          error
+          error "error parsing output of macro `#{name}':"
+          error
+          error "invocation:"
+          error macro_call
+          error
+          error "macro definition:"
+          error macro[:def]
+          error
+          error "macro output:"
+          error result_code
+          error
+          raise
+        end
+
+        process(result_sexp)
+      else
+        super
+      end
+    end
+  end
+
+  original_code = File.read(ARGV.shift)
+  original_sexp = RubyParser.new.parse(original_code.dup)
+  extracted_macro_sexp = ExtractMacros.new.process(original_sexp)
+  applied_macro_sexp = ApplyMacros.new.process(extracted_macro_sexp)
+  final_code = Ruby2Ruby.new.process(applied_macro_sexp)
+
+  extend Report
+
+  debug
+  debug "original code:"
+  debug original_code
+
+  debug
+  debug "transformed code:"
+  debug final_code
+
+  debug
+  debug "run:"
+  eval(final_code, TOPLEVEL_BINDING)
+end
+

@@ -1,0 +1,145 @@
+
+macroruby
+=========
+
+A very brief and very simple experiment with macros in Ruby.
+
+Pros:
+  * Easy to understand; easy to write new macros
+  * User is shielded from different ASTs; no s-exp walking needed
+  * Runs with 1.8, 1.9, and jruby (i.e. does not require ParseTree)
+  * Errors during macro expansion are verbose and understandable
+  * Macros can be recursive and/or mutually referential
+
+Cons:
+  * This is a toy
+  * Requires invoking macroruby in place of ruby
+  * Error messages outside of macro errors have little context
+  * Code must be syntax-compatible with ruby_parser
+
+Instructions
+============
+
+Write a method which starts with "macro_".  At parse time, the method
+is extracted from the source then compiled individually without the
+"macro_" prefix.
+
+All arguments passed to a macro are strings.  The first argument is
+always the receiver, even for implicit-self invocations, e.g. f().
+The arguments are the literal/verbatim expressions which appear as
+part of the invocation call.
+
+The output of a macro is a string containing the ruby code to be
+inserted at the point of invocation.
+
+A macro ignores a passed block, if one is given.
+
+Examples
+========
+
+Setting $DEBUG=true inside macroruby generates the following verbose
+output.
+
+% ./macroruby swap.rb
+------------------------------------------------------------
+* original code:
+
+def macro_swap(receiver, x, y)
+  tmp = MacroRuby.gen_string
+  %{
+    lambda {
+      #{tmp} = #{x}
+      #{x} = #{y}
+      #{y} = #{tmp}
+    }.call
+  }
+end
+
+a = 33
+b = 44
+swap(a, b)
+p a  #=> 44
+p b  #=> 33
+------------------------------------------------------------
+* transformed code:
+# do nothing
+a = 33
+b = 44
+lambda do
+  __gen_string__47845892465281419903__1 = a
+  a = b
+  b = __gen_string__47845892465281419903__1
+end.call
+p(a)
+p(b)
+------------------------------------------------------------
+* run:
+44
+33
+
+% ./macroruby locals_to_hash.rb 
+------------------------------------------------------------
+* original code:
+
+def macro_locals_to_hash(receiver, *args)
+  args.inject("{") { |acc, arg|
+    acc << ":#{arg}=>#{arg},"
+  } << "}"
+end
+
+a = 33
+b = 44
+h = locals_to_hash(a, b)
+p h  # => { :a => 33, :b => 44 }
+------------------------------------------------------------
+* transformed code:
+# do nothing
+a = 33
+b = 44
+h = { :a => (a), :b => (b) }
+p(h)
+------------------------------------------------------------
+* run:
+{:a=>33, :b=>44}
+
+% ./macroruby recursive.rb 
+------------------------------------------------------------
+* original code:
+
+def macro_fib(receiver, n_str)
+  n = n_str.to_i
+  if n == 1 or n == 2
+    "1"
+  else
+    %{
+      fib(#{n - 1}) + fib(#{n - 2})
+    }
+  end
+end
+
+p fib(1)
+p fib(2)
+p fib(3)
+p fib(4)
+p fib(5)
+p fib(6)
+p fib(7)
+------------------------------------------------------------
+* transformed code:
+# do nothing
+p(1)
+p(1)
+p((1 + 1))
+p(((1 + 1) + 1))
+p((((1 + 1) + 1) + (1 + 1)))
+p(((((1 + 1) + 1) + (1 + 1)) + ((1 + 1) + 1)))
+p((((((1 + 1) + 1) + (1 + 1)) + ((1 + 1) + 1)) + (((1 + 1) + 1) + (1 + 1))))
+------------------------------------------------------------
+* run:
+1
+1
+2
+3
+5
+8
+13
