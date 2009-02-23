@@ -41,6 +41,7 @@ module MacroRuby
   end
 
   class ExtractMacros < SexpProcessor
+    include Report
     def process(exp)
       if exp[0] == :defn and exp[1].to_s =~ %r!\Amacro_(.*)\Z!
         name = ($1).to_sym
@@ -53,7 +54,7 @@ module MacroRuby
           error
           error "error defining macro `#{name}':"
           error macro_def
-            error
+          error
           raise
         end
         MACROS[name][:def] = macro_def
